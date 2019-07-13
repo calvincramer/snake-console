@@ -10,7 +10,7 @@ Note doesn't bind folder
 
 ### Create container with mounted folder
 
-`docker run --name=linux -it -v //c/Users/CalvinLaptop/CalvinLaptop_Files/snake:/snake ubuntu:v2 /bin/bash`
+`docker run --name=linux -it -v //c/Users/CalvinLaptop/CalvinLaptop_Files/snake:/snake ubuntu:v3 /bin/bash`
 
 ### Start and attach
 
