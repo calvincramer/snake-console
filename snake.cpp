@@ -47,15 +47,41 @@
 #define KEY_UP false
 #define KEY_DOWN true
 
-void clear_color()
-{
-    printf("\033[0m");
-}
+/*
+ANSI escape codes
+http://www.termsys.demon.co.uk/vtansi.htm
 
-void set_location(int y, int x)
-{
-    printf("\033[%d;%dH", y, x);
-}
+ex: printf("\033[Hthis is the start of the terminal")
+
+Remember home is the first column and first row, so
+\033[H is the same as \033[1;1H
+\033[H      Home (top left of terminal)
+\033[5;5H   Moves cursor to 5th line and 5th column
+\033[5;5f   Moves cursor to 5th line and 5th column
+\033[2J     Clear the entire screen and move cursor to home
+*/
+
+void fore_black()   { printf("\033[30m");  }
+void fore_red()     { printf("\033[31m");  }
+void fore_green()   { printf("\033[32m");  }
+void fore_yellow()  { printf("\033[33m");  }
+void fore_blue()    { printf("\033[34m");  }
+void fore_magenta() { printf("\033[35m");  }
+void fore_cyan()    { printf("\033[36m");  }
+void fore_white()   { printf("\033[37m");  }
+void back_black()   { printf("\033[40m");  }
+void back_red()     { printf("\033[41m");  }
+void back_green()   { printf("\033[42m");  }
+void back_yellow()  { printf("\033[43m");  }
+void back_blue()    { printf("\033[44m");  }
+void back_magenta() { printf("\033[45m");  }
+void back_cyan()    { printf("\033[46m");  }
+void back_white()   { printf("\033[47m");  }
+void clear_color()  { printf("\033[0m");   }
+void hide_cursor()  { printf("\033[0;0H"); }
+void flush()        { fflush(stdout);      }
+void set_location(int y, int x) { printf("\033[%d;%dH", y, x); }
+void sleep(int ms) { usleep(ms * 1000);   }
 
 class Point {
  public:
@@ -126,66 +152,16 @@ Point fruit = NO_FRUIT;
 uint64_t score = 0;
 Snake snek(Point(term_rows, term_cols));
 uint8_t last_dir = DIR_RGHT;
-
-
-/*
-ANSI escape codes
-http://www.termsys.demon.co.uk/vtansi.htm
-
-ex: printf("\033[Hthis is the start of the terminal")
-
-Remember home is the first column and first row, so
-\033[H is the same as \033[1;1H
-
-
-\033[H      Home (top left of terminal)
-\033[5;5H   Moves cursor to 5th line and 5th column
-\033[5;5f   Moves cursor to 5th line and 5th column
-\033[2J     Clear the entire screen and move cursor to home
-
-*/
-
-
-
-void green()
-{
-    printf("\033[42m");
-}
+bool exit_condition = false;
 
 void print_snake()
 {
-    green();
+    back_green();
     for (Point& p : snek.segments) {
         set_location(p.y, p.x);
         printf(" ");
     }
     clear_color();
-}
-
-void sleep(int ms)
-{
-    usleep(ms * 1000);
-    //std::this_thread::sleep_for(std::chrono::milliseconds(500));
-}
-
-void flush()
-{
-    fflush(stdout);
-}
-
-void blue()
-{
-    printf("\033[44m");
-}
-
-void red()
-{
-    printf("\033[41m");
-}
-
-void hide_cursor()
-{
-    printf("\033[0;0H");
 }
 
 void print_field(int width, int height)
@@ -194,7 +170,7 @@ void print_field(int width, int height)
     const char* bar_cstr = bar.c_str();
 
     printf("\033[H");   // Home
-    blue();
+    back_blue();
 
     printf("%s", bar_cstr);
     for (int y = 2; y <= height - 1; y++) {
@@ -208,7 +184,19 @@ void print_field(int width, int height)
     // Print score
     printf("\033[%d;%dH", height, width / 2);
     printf("Score: %lu", score);
+
+    // Temporary end game region
+    std::string finish_bar ((width / 4) + 1, 'F');
+    const char* finish_bar_cstr = finish_bar.c_str();
+    back_red();
+    fore_cyan();
+    for (int y = height * 3 / 4; y < height; y++) {
+        set_location(y, width * 3 / 4);
+        printf("%s", finish_bar_cstr);
+    }
     clear_color();
+
+
 }
 
 
@@ -260,11 +248,15 @@ void move_snake() {
         case DIR_DOWN: snek.move(Point(snek.head_y() + 1, snek.head_x()), false); break;
         case DIR_RGHT: snek.move(Point(snek.head_y(), snek.head_x() + 1), false); break;
     }
+
+    // Check if in exit box
+    if (snek.head_y() >= (term_rows * 3) / 4 && snek.head_x() >= (term_cols * 3) / 4)
+        exit_condition = true;
 }
 
 void game_loop()
 {
-    for (int i = 0; i < 100; i++) {
+    while (!exit_condition) {
         move_snake();
         print_snake();
 
