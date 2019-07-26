@@ -1,7 +1,3 @@
-// Citations for helpful stuff:
-// Keyboard input:
-// https://www.linuxquestions.org/questions/programming-9/game-programming-non-blocking-key-input-740422/
-
 // #include <iostream>     // C++ version io
 #include <stdio.h>      // C version io
 #include <sys/ioctl.h>
@@ -13,17 +9,30 @@
 #include <limits>
 #include <ios>
 #include <thread>
+#include <cstdint>      // for integer types
+#include <deque>
 
 //#include <conio.h> // Windows based console io (for arrow keys)
 //curses for linux?
 #include <fcntl.h>
 
-#define BORDER_CHAR ' '
+
+    // TODO: speed up game the more fruit gotten
+    // First trying to just use printf instead of using buffer
+    // TODO: would be better to have no border and make whole console the playing field
+
+
+#define BORDER_CHAR 'X'
 #define POINTS_FOR_FRUIT 10
-#define GAME_TICK_MS 200
-#define KB_SLEEP_MS 50
+#define START_GAME_TICK_MS 200
+#define KB_SLEEP_MS 20
 #define DEFAULT_TERMINAL_ROWS 20
 #define DEFAULT_TERMINAL_COLS 20
+#define INIT_SNAKE_LENGTH 5
+#define DIR_RGHT 0
+#define DIR_DOWN 1
+#define DIR_LEFT 2
+#define DIR_UP   3
 
 // ASCII values for keyboard input
 #define KEY_w_ASCII 119
@@ -38,24 +47,85 @@
 #define KEY_UP false
 #define KEY_DOWN true
 
+void clear_color()
+{
+    printf("\033[0m");
+}
+
+void set_location(int y, int x)
+{
+    printf("\033[%d;%dH", y, x);
+}
+
+class Point {
+ public:
+    uint16_t x;
+    uint16_t y;
+    Point() {
+        this->x = 0;
+        this->y = 0;
+    }
+    Point(unsigned short y, unsigned short x) {
+        this->x = x;
+        this->y = y;
+    }
+    bool operator==(const Point& other) {
+        return this->x == other.x && this->y == other.y;
+    }
+};
+
+#define NO_FRUIT Point(65535, 65535)
+
+class Snake {
+ public:
+    std::deque<Point> segments;  // Head of deque is head of snake
+    Snake(Point term_dim) {
+        Point term_mid (term_dim.y / 2, term_dim.x / 2);
+        for (int i = 0; i < INIT_SNAKE_LENGTH; i++) {
+            Point temp_point (term_mid.y, term_mid.x + i);
+            this->segments.push_front(temp_point);
+        }
+    }
+    uint16_t length() {
+        return this->segments.size();
+    }
+    bool point_on_snake(Point p) {
+        for (Point& pnt : this->segments)
+            if (pnt == p) return true;
+        return false;
+    }
+    void move(Point p, bool collected_fruit) {
+        this->segments.push_front(p);
+        if (!collected_fruit) {
+            // Clear the last section of the snake on the screen (otherwise tail wouldn't stay on screen forever)
+            clear_color();
+            set_location(this->segments.back().y, this->segments.back().x);
+            printf(" ");
+            this->segments.pop_back();
+        }
+    }
+    uint16_t head_x() {
+        return this->segments.front().x;
+    }
+    uint16_t head_y() {
+        return this->segments.front().y;
+    }
+};
+
 // Global variables
-unsigned short term_rows = DEFAULT_TERMINAL_ROWS;
-unsigned short term_cols = DEFAULT_TERMINAL_COLS;
+uint16_t game_tick_ms = START_GAME_TICK_MS;
+uint16_t term_rows = DEFAULT_TERMINAL_ROWS;
+uint16_t term_cols = DEFAULT_TERMINAL_COLS;
 bool key_w_pressed = KEY_UP;
 bool key_a_pressed = KEY_UP;
 bool key_s_pressed = KEY_UP;
 bool key_d_pressed = KEY_UP;
 bool key_space_pressed = KEY_UP;
 bool end_kb_thread = false;
-
-
-
-    // TODO: print and keep track of SCORE
-    // TODO: USER KEY INPUT
-    // TODO: speed up game the more fruit gotten
-    // Allocate game field buffer?
-    // First trying to just use printf instead of using buffer
-
+Point fruit = NO_FRUIT;
+uint64_t score = 0;
+Snake snek(Point(term_rows, term_cols));
+uint8_t last_dir = DIR_RGHT;
 
 
 /*
@@ -75,6 +145,23 @@ Remember home is the first column and first row, so
 
 */
 
+
+
+void green()
+{
+    printf("\033[42m");
+}
+
+void print_snake()
+{
+    green();
+    for (Point& p : snek.segments) {
+        set_location(p.y, p.x);
+        printf(" ");
+    }
+    clear_color();
+}
+
 void sleep(int ms)
 {
     usleep(ms * 1000);
@@ -91,19 +178,9 @@ void blue()
     printf("\033[44m");
 }
 
-void green()
-{
-    printf("\033[42m");
-}
-
 void red()
 {
     printf("\033[41m");
-}
-
-void clear_color()
-{
-    printf("\033[0m");
 }
 
 void hide_cursor()
@@ -128,57 +205,72 @@ void print_field(int width, int height)
     }
     printf("\033[%d;1H", height);
     printf("%s", bar_cstr);
+    // Print score
+    printf("\033[%d;%dH", height, width / 2);
+    printf("Score: %lu", score);
     clear_color();
 }
 
-void print_snake()
-{
-    printf("\033[10;10H");
-    green();
-    printf("     ");
-    clear_color();
+
+void update_movement_direction() {
+    uint8_t num_directions_down = 0;
+    if (key_w_pressed) ++num_directions_down;
+    if (key_a_pressed) ++num_directions_down;
+    if (key_s_pressed) ++num_directions_down;
+    if (key_d_pressed) ++num_directions_down;
+
+    if (num_directions_down == 0 || num_directions_down == 4)
+        return; // No change in movement
+    else if (num_directions_down == 1) {
+        if      (key_w_pressed) last_dir = DIR_UP;
+        else if (key_a_pressed) last_dir = DIR_LEFT;
+        else if (key_s_pressed) last_dir = DIR_DOWN;
+        else if (key_d_pressed) last_dir = DIR_RGHT;
+        return;
+    }
+    else if (num_directions_down == 3) {
+        if (key_w_pressed && key_s_pressed) {
+            if (key_a_pressed) last_dir = DIR_LEFT;
+            else               last_dir = DIR_RGHT;
+        } else {    // a and d pressed
+            if (key_w_pressed) last_dir = DIR_UP;
+            else               last_dir = DIR_DOWN;
+        }
+        return;
+    }
+    // num directions pressed is 2
+    if ( (key_w_pressed && key_s_pressed) || (key_a_pressed && key_d_pressed) ) return; // No change
+    // Be nice and try to not move snake in opposite direction as the last direction (not onto the neck of the snake)
+    if (last_dir == DIR_UP || last_dir == DIR_DOWN) {
+        if (key_a_pressed) last_dir = DIR_LEFT;
+        else               last_dir = DIR_RGHT; // d is pressed
+    } else {    // last direction is left or right
+        if (key_w_pressed) last_dir = DIR_UP;
+        else               last_dir = DIR_DOWN; // s is pressed
+    }
+
 }
 
-void set_location(int y, int x)
-{
-    printf("\033[%d;%dH", y, x);
+void move_snake() {
+    update_movement_direction();
+    // Now move snake in direction of last_dir
+    switch (last_dir) {
+        case DIR_UP:   snek.move(Point(snek.head_y() - 1, snek.head_x()), false); break;
+        case DIR_LEFT: snek.move(Point(snek.head_y(), snek.head_x() - 1), false); break;
+        case DIR_DOWN: snek.move(Point(snek.head_y() + 1, snek.head_x()), false); break;
+        case DIR_RGHT: snek.move(Point(snek.head_y(), snek.head_x() + 1), false); break;
+    }
 }
-
-
 
 void game_loop()
 {
-    // Game loop
-    // while true
-        // gather input keys
-        // move snake
-        // draw
-        // clear key variables
-
-    // Test animation loop
-    for (int i = 3; i < term_rows; i++) {
-        // Erase previous snake
-        clear_color();
-        set_location(i-1, 20);
-        printf("      ");
-
-        // Display
-        green();
-        set_location(i, 20);
-        printf("      ");
-
-        // Clear keys pressed
-        set_location(10, 10);
-        printf(" ");
-        set_location(11, 9);
-        printf(" ");
-        set_location(11, 11);
-        printf(" ");
-        set_location(12, 10);
-        printf(" ");
+    for (int i = 0; i < 100; i++) {
+        move_snake();
+        print_snake();
 
         // Display input
         set_location(30, 30);
+        clear_color();
         printf((key_w_pressed) ? "W" : "w");
         printf((key_a_pressed) ? "A" : "a");
         printf((key_s_pressed) ? "S" : "s");
@@ -198,10 +290,12 @@ void game_loop()
         key_space_pressed = KEY_UP;
 
         // Sleep
-        sleep(GAME_TICK_MS);
+        sleep(game_tick_ms);
     }
 }
 
+// Credit to sd9: https://www.linuxquestions.org/questions/programming-9/game-programming-non-blocking-key-input-740422/
+// Comments by Calvin
 void keyboard_thread_loop()
 {
     // Set up stdin for keyboard input
@@ -217,26 +311,19 @@ void keyboard_thread_loop()
     fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);    // Sets to non-blocking mode
 
     int ch;
-
     while (!end_kb_thread) {
-        // Gather input
-        // key_w_pressed = KEY_UP;
-        // key_a_pressed = KEY_UP;
-        // key_s_pressed = KEY_UP;
-        // key_d_pressed = KEY_UP;
-        // key_space_pressed = KEY_UP;
         do {
             ch = getchar();
-            if      (ch == KEY_W_ASCII || ch == KEY_w_ASCII)  key_w_pressed = KEY_DOWN;
+            if      (ch == KEY_W_ASCII || ch ==  KEY_w_ASCII) key_w_pressed = KEY_DOWN;
             else if (ch == KEY_A_ASCII || ch ==  KEY_a_ASCII) key_a_pressed = KEY_DOWN;
             else if (ch == KEY_S_ASCII || ch ==  KEY_s_ASCII) key_s_pressed = KEY_DOWN;
             else if (ch == KEY_D_ASCII || ch ==  KEY_d_ASCII) key_d_pressed = KEY_DOWN;
-            else if (ch == KEY_SPACE_ASCII)            key_space_pressed = KEY_DOWN;
+            else if (ch == KEY_SPACE_ASCII)                   key_space_pressed = KEY_DOWN;
         } while (ch != EOF);
         // Wait a little
         sleep(KB_SLEEP_MS);
+        // Keys will be reset to down in draw loop
     }
-
     // Reset stdin to original state
     tcsetattr(STDIN_FILENO, TCSANOW, &oldt);    // Set the terminal parameters to original (TCSANOW forces change now)
     fcntl(STDIN_FILENO, F_SETFL, oldf);         // Set flag for STDIN file descriptor
@@ -252,6 +339,9 @@ int main()
 	ioctl(STDOUT_FILENO, TIOCGWINSZ, &size);
     term_rows = size.ws_row;
     term_cols = size.ws_col;
+
+    // Initialize snake again now that we know terminal dimensions
+    snek = Snake(Point(term_rows, term_cols));
 
     // Clear screen
     clear_color();
@@ -284,82 +374,4 @@ int main()
     kb_thread.join();
 
 	return 0;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// UNUSED:
-
-// Keyboard hit
-// Credit to sd9: https://www.linuxquestions.org/questions/programming-9/game-programming-non-blocking-key-input-740422/
-// Comments by Calvin
-// Uses STDIN to accomplish task
-int kbhit(void)
-{
-        struct termios oldt, newt;
-        int ch;
-        int oldf;
-
-        // Set stdin into noncannonical and to not echo characters
-        tcgetattr(STDIN_FILENO, &oldt);             // Get current terminal parameters
-        newt = oldt;                                // Copy oldt to newt
-        newt.c_lflag &= ~(ICANON | ECHO);           // c_lflag control local modes. Sets the local mode to be noncannoical and to not echo characters
-        tcsetattr(STDIN_FILENO, TCSANOW, &newt);    // Set STDIN file descriptor to have new terminal parameters effective immediately
-        // Set stdin to be non-blocking
-        oldf = fcntl(STDIN_FILENO, F_GETFL, 0);     // Get file access mode from STDIN, 0 is default third argument and isn't needed(?)
-        fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);    // Sets to non-blocking mode
-
-        ch = getchar();                             // Get a character
-
-        tcsetattr(STDIN_FILENO, TCSANOW, &oldt);    // Set the terminal parameters to original (TCSANOW forces change now)
-        fcntl(STDIN_FILENO, F_SETFL, oldf);         // Set flag for STDIN file descriptor
-
-        if(ch != EOF) {
-            ungetc(ch, stdin);                      // Puts the character back into STDIN if not EOF
-            return 1;
-        }
-
-        return 0;
-}
-
-// Keyboard test
-// Credit to sd9: https://www.linuxquestions.org/questions/programming-9/game-programming-non-blocking-key-input-740422/
-void kbtest()
-{
-    char c;
-    int v;
-    while(!kbhit());
-    c = getchar();
-    v = (int)c;
-    printf("\nInteger value=%d",v);
-    switch(v)
-    {
-        case 27:printf("\nEsc Pressed");break;
-        case 32:printf("\nSpace Pressed");break;
-        case 10:printf("\nEnter Pressed");break;
-        case 9:printf("\nTab Pressed");break;
-        //case 72:printf("\nUp arrow Pressed");break;
-        //case 80:printf("\nDown arrow Pressed");break;
-        //case 75:printf("\nLeft arrow Pressed");break;
-        //case 77:printf("\nRight arrow Pressed");break;
-        default:printf("\n%c Pressed",c);break;
-    }//switch
 }
