@@ -11,6 +11,7 @@
 #include <thread>
 #include <cstdint>      // for integer types
 #include <deque>
+#include <ctime>
 
 //#include <conio.h> // Windows based console io (for arrow keys)
 //curses for linux?
@@ -22,13 +23,17 @@
     // TODO: would be better to have no border and make whole console the playing field
 
 
-#define BORDER_CHAR '.'
+#define BORDER_CHAR '.'             // Border character
 #define POINTS_FOR_FRUIT 10
-#define START_GAME_TICK_MS 100
-#define KB_SLEEP_MS 20
+#define GAME_TICK_MS_START 100      // Snake moves 10 tiles per second at start
+#define KB_SLEEP_MS 20              // Keyboard sleep
 #define DEFAULT_TERMINAL_ROWS 20
 #define DEFAULT_TERMINAL_COLS 20
-#define INIT_SNAKE_LENGTH 5
+#define INIT_SNAKE_LENGTH 7
+#define FRUITS_PER_SPEEDUP 5
+#define SPEEDUP_MS 5                // Amount to speedup game by
+#define DEATH_SCREEN_TICK 50
+#define MIN_GAME_TICK 30
 #define DIR_RGHT 0
 #define DIR_DOWN 1
 #define DIR_LEFT 2
@@ -48,7 +53,7 @@
 #define KEY_DOWN true
 
 // Global variables
-uint16_t game_tick_ms = START_GAME_TICK_MS;
+uint16_t game_tick_ms = GAME_TICK_MS_START;
 uint16_t term_rows = DEFAULT_TERMINAL_ROWS;
 uint16_t term_cols = DEFAULT_TERMINAL_COLS;
 bool key_w_pressed = KEY_UP;
@@ -60,6 +65,7 @@ bool end_kb_thread = false;
 uint64_t score = 0;
 uint8_t last_dir = DIR_RGHT;
 bool exit_condition = false;
+uint8_t fruits_collected = 0;
 
 /*
 ANSI escape codes
@@ -289,6 +295,11 @@ void move_snake() {
     // Check if hit fruit
     if (snek.head() == fruit) {
         score += POINTS_FOR_FRUIT;
+        ++fruits_collected;
+        if (fruits_collected >= FRUITS_PER_SPEEDUP) {
+            fruits_collected = 0;
+            game_tick_ms = std::max(game_tick_ms - SPEEDUP_MS, MIN_GAME_TICK);
+        }
         play_sound();
         place_random_fruit();
         // extended snake handled by snek.move()
@@ -317,7 +328,7 @@ void game_loop()
 {
     while (!exit_condition) {
         move_snake();
-        print_inputs();
+        //print_inputs();
         print_snake();
         hide_cursor();
 
@@ -369,16 +380,92 @@ void keyboard_thread_loop()
     fcntl(STDIN_FILENO, F_SETFL, oldf);         // Set flag for STDIN file descriptor
 }
 
+void welcome_screen() {
+    clear_color();
+    back_white();
+    fore_black();
+    clear_screen();
+    // Set stdin to not echo any input
+    // struct termios oldt, newt;
+    // tcgetattr(STDIN_FILENO, &oldt);
+    // newt = oldt;
+    // newt.c_lflag &= ~(ECHO);
+    // tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+
+    set_location(4,4);
+    printf("WELCOME TO SNAKE!");
+    set_location(6,4);
+    printf("wasd to move");
+    set_location(7,4);
+    printf("space to pause");
+    set_location(term_rows - 2, 4);
+    printf("by Calvin Cramer - calvincramer@gmail.com");
+    set_location(term_rows, term_cols / 2 - 10);
+    printf("Press enter to start");
+
+    // TODO display highscores on the welcome screen
+    hide_cursor();
+    flush();
+    sleep(2000);
+
+    // TODO: start when press enter
+    //std::string s;
+    //getline(std::cin, s);
+
+    //tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+}
+
+void death_screen() {
+    auto color_diagonal = [](int i) {
+        int start_y = i;
+        int start_x = 1;
+        if (start_y > term_rows) {
+            start_x += start_y - term_rows;
+            start_y = term_rows;
+        }
+        int y = start_y; int x = start_x;
+        while (x <= term_cols && y >= 1) {
+            set_location(y, x);
+            printf(" ");
+            --y;
+            ++x;
+        }
+        hide_cursor();
+        flush();
+        sleep(DEATH_SCREEN_TICK);
+    };
+
+    clear_color();
+    back_red();
+    for (int i = 1; i <= term_rows + term_cols; i += 2)
+        color_diagonal(i);
+    for (int i = term_rows + term_cols - (((term_rows + term_cols) % 2 == 1) ? 1 : 2); i >= 1; i -= 2)
+        color_diagonal(i);
+    sleep(1000);
+}
+
+void score_screen() {
+    // TODO
+    // clear screen
+    // show your score, number of fruits collected, speed level
+    // show high scores
+    // if got highscore, congradulate
+    // if got highscore, allow entering name
+    // save highscore and display
+}
+
 int main()
 {
-    // Launch keyboard listener thread
-    std::thread kb_thread(keyboard_thread_loop);
-
     // Get and set terminal dimensions
-	struct winsize size;
-	ioctl(STDOUT_FILENO, TIOCGWINSZ, &size);
+    struct winsize size;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &size);
     term_rows = size.ws_row;
     term_cols = size.ws_col;
+
+    welcome_screen();
+
+    srand(time(NULL));                              // For the fruit placement
+    std::thread kb_thread(keyboard_thread_loop);    // Launch keyboard listener thread
 
     // Initialize snake again now that we know terminal dimensions, and fruit
     snek = Snake(Point(term_rows, term_cols));
@@ -399,19 +486,21 @@ int main()
 
     game_loop();
 
-    // Show score that died with
-    // TODO
+    // Join with keyboard listener thread before exiting
+    end_kb_thread = true;
+    kb_thread.join();
+
+    // Death screen animation
+    death_screen();
+
+    // Show high score screen
+
 
     // End of game clear screen
     clear_color();
     clear_screen();
     flush();
     sleep(500);
-
-
-    // Join with keyboard listener thread before exiting
-    end_kb_thread = true;
-    kb_thread.join();
 
 	return 0;
 }
