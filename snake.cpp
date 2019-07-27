@@ -22,9 +22,9 @@
     // TODO: would be better to have no border and make whole console the playing field
 
 
-#define BORDER_CHAR 'X'
+#define BORDER_CHAR '.'
 #define POINTS_FOR_FRUIT 10
-#define START_GAME_TICK_MS 200
+#define START_GAME_TICK_MS 100
 #define KB_SLEEP_MS 20
 #define DEFAULT_TERMINAL_ROWS 20
 #define DEFAULT_TERMINAL_COLS 20
@@ -46,6 +46,20 @@
 #define KEY_SPACE_ASCII 32
 #define KEY_UP false
 #define KEY_DOWN true
+
+// Global variables
+uint16_t game_tick_ms = START_GAME_TICK_MS;
+uint16_t term_rows = DEFAULT_TERMINAL_ROWS;
+uint16_t term_cols = DEFAULT_TERMINAL_COLS;
+bool key_w_pressed = KEY_UP;
+bool key_a_pressed = KEY_UP;
+bool key_s_pressed = KEY_UP;
+bool key_d_pressed = KEY_UP;
+bool key_space_pressed = KEY_UP;
+bool end_kb_thread = false;
+uint64_t score = 0;
+uint8_t last_dir = DIR_RGHT;
+bool exit_condition = false;
 
 /*
 ANSI escape codes
@@ -79,6 +93,8 @@ void back_cyan()    { printf("\033[46m");  }
 void back_white()   { printf("\033[47m");  }
 void clear_color()  { printf("\033[0m");   }
 void hide_cursor()  { printf("\033[0;0H"); }
+void blink_text()   { printf("\033[5m");   }
+void clear_screen() { printf("\033[2J");   }
 void flush()        { fflush(stdout);      }
 void set_location(int y, int x) { printf("\033[%d;%dH", y, x); }
 void sleep(int ms) { usleep(ms * 1000);   }
@@ -99,14 +115,14 @@ class Point {
         return this->x == other.x && this->y == other.y;
     }
 };
-
 #define NO_FRUIT Point(65535, 65535)
+Point fruit = NO_FRUIT;
 
 class Snake {
  public:
     std::deque<Point> segments;  // Head of deque is head of snake
     Snake(Point term_dim) {
-        Point term_mid (term_dim.y / 2, term_dim.x / 2);
+        Point term_mid (term_dim.y / 2, (term_dim.x / 2) - (INIT_SNAKE_LENGTH / 2));
         for (int i = 0; i < INIT_SNAKE_LENGTH; i++) {
             Point temp_point (term_mid.y, term_mid.x + i);
             this->segments.push_front(temp_point);
@@ -120,83 +136,105 @@ class Snake {
             if (pnt == p) return true;
         return false;
     }
-    void move(Point p, bool collected_fruit) {
+    bool snake_head_collides_body() {
+        for (uint32_t i = 1; i < this->segments.size(); i++)
+            if (this->segments[0] == this->segments[i])
+                return true;
+        return false;
+    }
+    void move(Point p) {
         this->segments.push_front(p);
+        bool collected_fruit = (p == fruit);
         if (!collected_fruit) {
             // Clear the last section of the snake on the screen (otherwise tail wouldn't stay on screen forever)
-            clear_color();
+            clear_color();  // clear color needed for background color
             set_location(this->segments.back().y, this->segments.back().x);
-            printf(" ");
+            // Check if need to reprint border
+            if ( (this->segments.back().y == 1 || this->segments.back().y == term_rows) && this->segments.back().x % 2 == 1) {  // TODO replace with function
+                printf("%c", BORDER_CHAR);
+            } else {
+                printf(" ");
+            }
             this->segments.pop_back();
         }
     }
-    uint16_t head_x() {
-        return this->segments.front().x;
-    }
-    uint16_t head_y() {
-        return this->segments.front().y;
-    }
+    uint16_t head_x() { return this->segments.front().x; }
+    uint16_t head_y() { return this->segments.front().y; }
+    Point& head()     { return this->segments.front();   }
 };
-
-// Global variables
-uint16_t game_tick_ms = START_GAME_TICK_MS;
-uint16_t term_rows = DEFAULT_TERMINAL_ROWS;
-uint16_t term_cols = DEFAULT_TERMINAL_COLS;
-bool key_w_pressed = KEY_UP;
-bool key_a_pressed = KEY_UP;
-bool key_s_pressed = KEY_UP;
-bool key_d_pressed = KEY_UP;
-bool key_space_pressed = KEY_UP;
-bool end_kb_thread = false;
-Point fruit = NO_FRUIT;
-uint64_t score = 0;
 Snake snek(Point(term_rows, term_cols));
-uint8_t last_dir = DIR_RGHT;
-bool exit_condition = false;
 
 void print_snake()
 {
     back_green();
+    int seg_num = -1;
     for (Point& p : snek.segments) {
         set_location(p.y, p.x);
-        printf(" ");
+        if (seg_num == -1) {
+            if (last_dir == DIR_UP || last_dir == DIR_DOWN)
+                printf("|");
+            else
+                printf("-");
+        } else {
+            printf("o");
+        }
+        ++seg_num;
     }
-    clear_color();
 }
 
-void print_field(int width, int height)
+void play_sound() {
+    printf("\a");
+    // TODO: doesn't always work, and might sound like windows annoying sound
+}
+
+void print_fruit()
 {
+    back_magenta();
+    fore_red();
+    blink_text();
+    set_location(fruit.y, fruit.x);
+    printf("O");
+}
+
+void print_score()
+{
+    fore_cyan();
+    back_blue();
+    set_location(term_rows, term_cols / 2);
+    printf("Score: %lu", score);
+}
+
+void place_random_fruit() {
+    do {
+        fruit.x = (rand() % term_cols) + 1;
+        fruit.y = (rand() % term_rows) + 1;
+    } while (snek.point_on_snake(fruit));
+    print_fruit();
+}
+
+void print_field()
+{
+    int width = term_cols;
+    int height = term_rows;
     std::string bar (width, BORDER_CHAR);
+    for (uint16_t i = 1; i < bar.length(); i += 2)
+        bar[i] = ' ';
     const char* bar_cstr = bar.c_str();
 
-    printf("\033[H");   // Home
-    back_blue();
-
-    printf("%s", bar_cstr);
-    for (int y = 2; y <= height - 1; y++) {
-        printf("\033[%d;1H", y);    // Move to yth column
-        printf("%c", BORDER_CHAR);
-        printf("\033[%d;%dH", y, width);    // Right side
-        printf("%c", BORDER_CHAR);
-    }
-    printf("\033[%d;1H", height);
-    printf("%s", bar_cstr);
-    // Print score
-    printf("\033[%d;%dH", height, width / 2);
-    printf("Score: %lu", score);
-
-    // Temporary end game region
-    std::string finish_bar ((width / 4) + 1, 'F');
-    const char* finish_bar_cstr = finish_bar.c_str();
-    back_red();
-    fore_cyan();
-    for (int y = height * 3 / 4; y < height; y++) {
-        set_location(y, width * 3 / 4);
-        printf("%s", finish_bar_cstr);
-    }
     clear_color();
+    fore_white();
+    set_location(1, 1);
+    printf("%s", bar_cstr);
 
+    for (uint16_t y = 2; y <= height - 1; y++) {
+        set_location(y, 1);
+        printf("%c", BORDER_CHAR);
+        set_location(y, width);
+        printf("%c", BORDER_CHAR);
+    }
 
+    set_location(height, 1);
+    printf("%s", bar_cstr);
 }
 
 
@@ -243,36 +281,45 @@ void move_snake() {
     update_movement_direction();
     // Now move snake in direction of last_dir
     switch (last_dir) {
-        case DIR_UP:   snek.move(Point(snek.head_y() - 1, snek.head_x()), false); break;
-        case DIR_LEFT: snek.move(Point(snek.head_y(), snek.head_x() - 1), false); break;
-        case DIR_DOWN: snek.move(Point(snek.head_y() + 1, snek.head_x()), false); break;
-        case DIR_RGHT: snek.move(Point(snek.head_y(), snek.head_x() + 1), false); break;
+        case DIR_UP:   snek.move(Point(snek.head_y() - 1, snek.head_x())); break;
+        case DIR_LEFT: snek.move(Point(snek.head_y(), snek.head_x() - 1)); break;
+        case DIR_DOWN: snek.move(Point(snek.head_y() + 1, snek.head_x())); break;
+        case DIR_RGHT: snek.move(Point(snek.head_y(), snek.head_x() + 1)); break;
     }
-
-    // Check if in exit box
-    if (snek.head_y() >= (term_rows * 3) / 4 && snek.head_x() >= (term_cols * 3) / 4)
+    // Check if hit fruit
+    if (snek.head() == fruit) {
+        score += POINTS_FOR_FRUIT;
+        play_sound();
+        place_random_fruit();
+        // extended snake handled by snek.move()
+        print_score();
+    }
+    // Check if hit self or outside edge
+    if (snek.head_x() < 1 || snek.head_x() > term_cols
+     || snek.head_y() < 1 || snek.head_y() > term_rows
+     || snek.snake_head_collides_body()) {
         exit_condition = true;
+    }
+}
+
+void print_inputs() {
+    set_location(2, 2);
+    clear_color();
+    printf((key_w_pressed) ? "W" : "w");
+    printf((key_a_pressed) ? "A" : "a");
+    printf((key_s_pressed) ? "S" : "s");
+    printf((key_d_pressed) ? "D" : "d");
+    printf(" ");
+    printf((key_space_pressed) ? "SPACE" : "space");
 }
 
 void game_loop()
 {
     while (!exit_condition) {
         move_snake();
+        print_inputs();
         print_snake();
-
-        // Display input
-        set_location(30, 30);
-        clear_color();
-        printf((key_w_pressed) ? "W" : "w");
-        printf((key_a_pressed) ? "A" : "a");
-        printf((key_s_pressed) ? "S" : "s");
-        printf((key_d_pressed) ? "D" : "d");
-        printf(" ");
-        printf((key_space_pressed) ? "SPACE" : "space");
-
-        clear_color();
         hide_cursor();
-        flush();
 
         // Clear keyboard inputs
         key_w_pressed = KEY_UP;
@@ -281,6 +328,7 @@ void game_loop()
         key_d_pressed = KEY_UP;
         key_space_pressed = KEY_UP;
 
+        flush();
         // Sleep
         sleep(game_tick_ms);
     }
@@ -332,34 +380,34 @@ int main()
     term_rows = size.ws_row;
     term_cols = size.ws_col;
 
-    // Initialize snake again now that we know terminal dimensions
+    // Initialize snake again now that we know terminal dimensions, and fruit
     snek = Snake(Point(term_rows, term_cols));
 
     // Clear screen
     clear_color();
-    flush();
-    printf("\033[2J");
-    flush();
-    sleep(500);
+    clear_screen();
 
     // Print field
-    print_field(term_cols, term_rows);
+    print_field();
+    print_snake();
+    print_score();
     hide_cursor();
     flush();
     sleep(1000);
 
-    // Print snake
-    // print_snake();
-    // hide_cursor();
-    // flush();
-    // sleep(2000);
+    place_random_fruit();
 
     game_loop();
 
+    // Show score that died with
+    // TODO
+
     // End of game clear screen
-    printf("\033[2J");  // clear
+    clear_color();
+    clear_screen();
     flush();
     sleep(500);
+
 
     // Join with keyboard listener thread before exiting
     end_kb_thread = true;
