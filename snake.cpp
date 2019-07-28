@@ -12,6 +12,8 @@
 #include <cstdint>      // for integer types
 #include <deque>
 #include <ctime>
+#include <limits>
+#include <fstream>
 
 //#include <conio.h> // Windows based console io (for arrow keys)
 //curses for linux?
@@ -34,10 +36,13 @@
 #define SPEEDUP_MS 5                // Amount to speedup game by
 #define DEATH_SCREEN_TICK 50
 #define MIN_GAME_TICK 30
+#define MAX_HIGHSCORES 10
+#define HIGHSCORE_NAME_LEN 3
 #define DIR_RGHT 0
 #define DIR_DOWN 1
 #define DIR_LEFT 2
 #define DIR_UP   3
+const std::string highscore_file = "hs.txt";
 
 // ASCII values for keyboard input
 #define KEY_w_ASCII 119
@@ -52,6 +57,11 @@
 #define KEY_UP false
 #define KEY_DOWN true
 
+struct HighscoreEntry {
+    char name[HIGHSCORE_NAME_LEN];
+    uint64_t score;
+};
+
 // Global variables
 uint16_t game_tick_ms = GAME_TICK_MS_START;
 uint16_t term_rows = DEFAULT_TERMINAL_ROWS;
@@ -65,7 +75,10 @@ bool end_kb_thread = false;
 uint64_t score = 0;
 uint8_t last_dir = DIR_RGHT;
 bool exit_condition = false;
-uint8_t fruits_collected = 0;
+uint32_t fruits_collected = 0;       // will get reset to zero when speeding up
+uint32_t fruits_collected_total = 0;
+uint32_t speed_level = 0;
+HighscoreEntry highscores[MAX_HIGHSCORES];
 
 /*
 ANSI escape codes
@@ -80,7 +93,6 @@ Remember home is the first column and first row, so
 \033[5;5f   Moves cursor to 5th line and 5th column
 \033[2J     Clear the entire screen and move cursor to home
 */
-
 void fore_black()   { printf("\033[30m");  }
 void fore_red()     { printf("\033[31m");  }
 void fore_green()   { printf("\033[32m");  }
@@ -188,9 +200,59 @@ void print_snake()
     }
 }
 
-void play_sound() {
+void play_sound()
+{
     printf("\a");
     // TODO: doesn't always work, and might sound like windows annoying sound
+}
+
+void write_default_highscore_file()
+{
+    std::ofstream hs_file(highscore_file);
+    for (int i = 0; i < MAX_HIGHSCORES; i++)
+        hs_file << "nul 0\n";
+    hs_file.close();
+}
+
+void read_highscores()
+{
+    std::ifstream hs_file(highscore_file);
+    if (!hs_file) {
+        write_default_highscore_file();
+        read_highscores();
+        return;
+    }
+    // Read from file
+    for (int i = 0; i < MAX_HIGHSCORES; i++) {
+        hs_file.get(highscores[i].name, HIGHSCORE_NAME_LEN, ' ');
+        hs_file.get();  // Consumes space delimiter
+        hs_file >> highscores[i].score;
+    }
+    hs_file.close();
+}
+
+void write_highscores()
+{
+    std::ofstream hs_file(highscore_file);
+    for (int i = 0; i < MAX_HIGHSCORES; i++)
+        hs_file << highscores[i].name << " " << highscores[i].score << "\n";
+    hs_file.close();
+}
+
+void wait_for_enter()
+{
+    //std::string s;
+    //getline(std::cin, s);
+    //std::cin.ignore();
+    //std::cin.clear();
+    //std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    //fflush(stdin);
+    //getchar();
+    std::cin.get();
+    // set_location(10, 10);
+    // printf("cin.get val: %d", val);
+    // set_location(11, 10);
+    // printf("cin.fail ? : %d", std::cin.fail());
 }
 
 void print_fruit()
@@ -210,7 +272,8 @@ void print_score()
     printf("Score: %lu", score);
 }
 
-void place_random_fruit() {
+void place_random_fruit()
+{
     do {
         fruit.x = (rand() % term_cols) + 1;
         fruit.y = (rand() % term_rows) + 1;
@@ -244,7 +307,8 @@ void print_field()
 }
 
 
-void update_movement_direction() {
+void update_movement_direction()
+{
     uint8_t num_directions_down = 0;
     if (key_w_pressed) ++num_directions_down;
     if (key_a_pressed) ++num_directions_down;
@@ -280,10 +344,10 @@ void update_movement_direction() {
         if (key_w_pressed) last_dir = DIR_UP;
         else               last_dir = DIR_DOWN; // s is pressed
     }
-
 }
 
-void move_snake() {
+void move_snake()
+{
     update_movement_direction();
     // Now move snake in direction of last_dir
     switch (last_dir) {
@@ -296,9 +360,12 @@ void move_snake() {
     if (snek.head() == fruit) {
         score += POINTS_FOR_FRUIT;
         ++fruits_collected;
+        ++fruits_collected_total;
         if (fruits_collected >= FRUITS_PER_SPEEDUP) {
+            // SPEED THE GAME UP!
             fruits_collected = 0;
             game_tick_ms = std::max(game_tick_ms - SPEEDUP_MS, MIN_GAME_TICK);
+            ++speed_level;
         }
         play_sound();
         place_random_fruit();
@@ -313,7 +380,8 @@ void move_snake() {
     }
 }
 
-void print_inputs() {
+void print_inputs()
+{
     set_location(2, 2);
     clear_color();
     printf((key_w_pressed) ? "W" : "w");
@@ -380,7 +448,21 @@ void keyboard_thread_loop()
     fcntl(STDIN_FILENO, F_SETFL, oldf);         // Set flag for STDIN file descriptor
 }
 
-void welcome_screen() {
+void print_highscores(int y, int x)
+{
+    set_location(y, x);
+    printf("HIGHSCORES");
+    ++y;
+    for (int i = 0; i < MAX_HIGHSCORES; i++) {
+        set_location(y, x);
+        if (i == 0) printf("#%d %c%c%c %lu", i+1, highscores[i].name[0], highscores[i].name[1], highscores[i].name[2], highscores[i].score);
+        else        printf("%2d %c%c%c %lu", i+1, highscores[i].name[0], highscores[i].name[1], highscores[i].name[2], highscores[i].score);
+        ++y;
+    }
+}
+
+void welcome_screen()
+{
     clear_color();
     back_white();
     fore_black();
@@ -398,24 +480,22 @@ void welcome_screen() {
     printf("wasd to move");
     set_location(7,4);
     printf("space to pause");
+    print_highscores(9, 4);
     set_location(term_rows - 2, 4);
     printf("by Calvin Cramer - calvincramer@gmail.com");
-    set_location(term_rows, term_cols / 2 - 10);
-    printf("Press enter to start");
+    set_location(term_rows, term_cols / 2 - 8);
+    printf("<enter to start>");
 
     // TODO display highscores on the welcome screen
     hide_cursor();
     flush();
-    sleep(2000);
+    //sleep(2000);
 
-    // TODO: start when press enter
-    //std::string s;
-    //getline(std::cin, s);
-
-    //tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    wait_for_enter();
 }
 
-void death_screen() {
+void death_screen()
+{
     auto color_diagonal = [](int i) {
         int start_y = i;
         int start_x = 1;
@@ -444,18 +524,46 @@ void death_screen() {
     sleep(1000);
 }
 
-void score_screen() {
-    // TODO
-    // clear screen
-    // show your score, number of fruits collected, speed level
-    // show high scores
-    // if got highscore, congradulate
-    // if got highscore, allow entering name
-    // save highscore and display
+void score_screen()
+{
+    clear_color();
+    clear_screen();
+    // Show score, number of fruits collected, speed level
+    set_location(2, 2);
+    printf("YOU DIED :(");
+    set_location(4, 2);
+    printf("SCORE: %lu", score);
+    set_location(5, 2);
+    printf("FRUITS: %d", fruits_collected);
+    set_location(6, 2);
+    printf("SPEED LEVEL: %d", speed_level);
+    // TODO: Print old highscores
+
+    if (true) { // TODO if got highscore
+        set_location(8, 2);
+        printf("HIGHSCORE GET, YAY!");
+        set_location(9, 2);
+        printf("ENTER NAME: ___");
+        hide_cursor();
+        flush();
+        // TODO - enter 3 character number
+        std::string name ("ABC");
+        // TODO - save highscore
+
+        // TODO - print new highscores with thier name, highlight line
+    }
+
+    set_location(term_rows, term_cols / 2 - 7);
+    printf("<enter to quit>");
+    hide_cursor();
+    flush();
+    wait_for_enter();
 }
 
 int main()
 {
+    read_highscores();
+
     // Get and set terminal dimensions
     struct winsize size;
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &size);
@@ -490,11 +598,10 @@ int main()
     end_kb_thread = true;
     kb_thread.join();
 
-    // Death screen animation
     death_screen();
+    score_screen();
 
-    // Show high score screen
-
+    write_highscores();
 
     // End of game clear screen
     clear_color();
