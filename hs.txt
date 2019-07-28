@@ -1,11 +1,10 @@
-nu 0
-
-n 0
- 0
- 0
- 0
- 0
- 0
- 0
- 0
- 0
+ABC 80
+ABC 30
+ABC 20
+ABC 10
+ABC 10
+nul 0
+nul 0
+nul 0
+nul 0
+nul 0

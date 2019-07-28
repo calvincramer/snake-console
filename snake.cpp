@@ -1,4 +1,3 @@
-// #include <iostream>     // C++ version io
 #include <stdio.h>      // C version io
 #include <sys/ioctl.h>
 #include <termios.h>
@@ -14,16 +13,9 @@
 #include <ctime>
 #include <limits>
 #include <fstream>
-
-//#include <conio.h> // Windows based console io (for arrow keys)
-//curses for linux?
 #include <fcntl.h>
-
-
-    // TODO: speed up game the more fruit gotten
-    // First trying to just use printf instead of using buffer
-    // TODO: would be better to have no border and make whole console the playing field
-
+#include <cstring>
+//#include <conio.h> // Windows based console io (for arrow keys)
 
 #define BORDER_CHAR '.'             // Border character
 #define POINTS_FOR_FRUIT 10
@@ -58,26 +50,26 @@ const std::string highscore_file = "hs.txt";
 #define KEY_DOWN true
 
 struct HighscoreEntry {
-    char name[HIGHSCORE_NAME_LEN];
+    char name[HIGHSCORE_NAME_LEN + 1];  // Plus one for null terminal
     uint64_t score;
 };
 
 // Global variables
-uint16_t game_tick_ms = GAME_TICK_MS_START;
-uint16_t term_rows = DEFAULT_TERMINAL_ROWS;
-uint16_t term_cols = DEFAULT_TERMINAL_COLS;
-bool key_w_pressed = KEY_UP;
-bool key_a_pressed = KEY_UP;
-bool key_s_pressed = KEY_UP;
-bool key_d_pressed = KEY_UP;
+uint16_t game_tick_ms  = GAME_TICK_MS_START;
+uint16_t term_rows     = DEFAULT_TERMINAL_ROWS;
+uint16_t term_cols     = DEFAULT_TERMINAL_COLS;
+bool key_w_pressed     = KEY_UP;
+bool key_a_pressed     = KEY_UP;
+bool key_s_pressed     = KEY_UP;
+bool key_d_pressed     = KEY_UP;
 bool key_space_pressed = KEY_UP;
-bool end_kb_thread = false;
-uint64_t score = 0;
-uint8_t last_dir = DIR_RGHT;
-bool exit_condition = false;
-uint32_t fruits_collected = 0;       // will get reset to zero when speeding up
-uint32_t fruits_collected_total = 0;
-uint32_t speed_level = 0;
+bool end_kb_thread     = false;
+uint64_t score         = 0;
+uint8_t last_dir       = DIR_RGHT;
+bool exit_condition    = false;
+uint32_t fruits_coll   = 0;       // will get reset to zero when speeding up
+uint32_t fruits_total  = 0;
+uint32_t speed_level   = 0;
 HighscoreEntry highscores[MAX_HIGHSCORES];
 
 /*
@@ -210,7 +202,7 @@ void write_default_highscore_file()
 {
     std::ofstream hs_file(highscore_file);
     for (int i = 0; i < MAX_HIGHSCORES; i++)
-        hs_file << "nul 0\n";
+        hs_file << "___ 0\n";
     hs_file.close();
 }
 
@@ -224,9 +216,10 @@ void read_highscores()
     }
     // Read from file
     for (int i = 0; i < MAX_HIGHSCORES; i++) {
-        hs_file.get(highscores[i].name, HIGHSCORE_NAME_LEN, ' ');
-        hs_file.get();  // Consumes space delimiter
+        hs_file.get(highscores[i].name, HIGHSCORE_NAME_LEN + 1, ' ');
+        hs_file.get();  // Consume space
         hs_file >> highscores[i].score;
+        hs_file.get();  // Consume newline
     }
     hs_file.close();
 }
@@ -359,11 +352,11 @@ void move_snake()
     // Check if hit fruit
     if (snek.head() == fruit) {
         score += POINTS_FOR_FRUIT;
-        ++fruits_collected;
-        ++fruits_collected_total;
-        if (fruits_collected >= FRUITS_PER_SPEEDUP) {
+        ++fruits_coll;
+        ++fruits_total;
+        if (fruits_coll >= FRUITS_PER_SPEEDUP) {
             // SPEED THE GAME UP!
-            fruits_collected = 0;
+            fruits_coll = 0;
             game_tick_ms = std::max(game_tick_ms - SPEEDUP_MS, MIN_GAME_TICK);
             ++speed_level;
         }
@@ -524,6 +517,21 @@ void death_screen()
     sleep(1000);
 }
 
+void insert_highscore(uint64_t s, const char* name)
+{
+    uint8_t i = 0;
+    while (i < MAX_HIGHSCORES && highscores[i].score >= s) ++i;
+    HighscoreEntry prev = highscores[i];
+    strcpy(highscores[i].name, name);
+    highscores[i].score = s;
+    ++i;
+    for (; i < MAX_HIGHSCORES - 1; ++i) {
+        HighscoreEntry temp = highscores[i];
+        highscores[i] = prev;
+        prev = temp;
+    }
+}
+
 void score_screen()
 {
     clear_color();
@@ -534,23 +542,32 @@ void score_screen()
     set_location(4, 2);
     printf("SCORE: %lu", score);
     set_location(5, 2);
-    printf("FRUITS: %d", fruits_collected);
+    printf("FRUITS: %d", fruits_coll);
     set_location(6, 2);
     printf("SPEED LEVEL: %d", speed_level);
-    // TODO: Print old highscores
 
-    if (true) { // TODO if got highscore
+    if (score > highscores[MAX_HIGHSCORES - 1].score) { // GOT A HIGHSCORE
+        print_highscores(11, 2);
         set_location(8, 2);
         printf("HIGHSCORE GET, YAY!");
         set_location(9, 2);
         printf("ENTER NAME: ___");
         hide_cursor();
         flush();
-        // TODO - enter 3 character number
-        std::string name ("ABC");
-        // TODO - save highscore
 
+        // TODO - enter 3 character number, make sure all uppercase
+        //std::string name ("ABC");
+        //name.c_str()
+        sleep(1000);
+
+        const char* name = "ABC";
+        insert_highscore(score, name);
+        write_highscores();     // Write scores to file right away
+        print_highscores(11, 2);
         // TODO - print new highscores with thier name, highlight line
+
+    } else {
+        print_highscores(9, 2);
     }
 
     set_location(term_rows, term_cols / 2 - 7);
@@ -598,16 +615,13 @@ int main()
     end_kb_thread = true;
     kb_thread.join();
 
-    death_screen();
+    //death_screen();
     score_screen();
-
-    write_highscores();
 
     // End of game clear screen
     clear_color();
     clear_screen();
     flush();
-    sleep(500);
 
 	return 0;
 }
