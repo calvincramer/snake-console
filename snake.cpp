@@ -15,6 +15,8 @@
 #include <fstream>
 #include <fcntl.h>
 #include <cstring>
+#include <iomanip>
+#include <cctype>
 //#include <conio.h> // Windows based console io (for arrow keys)
 
 #define BORDER_CHAR '.'             // Border character
@@ -45,9 +47,11 @@ const std::string highscore_file = "hs.txt";
 #define KEY_A_ASCII 65
 #define KEY_S_ASCII 83
 #define KEY_D_ASCII 68
-#define KEY_SPACE_ASCII 32
 #define KEY_UP false
 #define KEY_DOWN true
+#define BACKSPACE 8
+#define DELETE 127
+#define ENTER 10        // newline
 
 struct HighscoreEntry {
     char name[HIGHSCORE_NAME_LEN + 1];  // Plus one for null terminal
@@ -62,7 +66,6 @@ bool key_w_pressed     = KEY_UP;
 bool key_a_pressed     = KEY_UP;
 bool key_s_pressed     = KEY_UP;
 bool key_d_pressed     = KEY_UP;
-bool key_space_pressed = KEY_UP;
 bool end_kb_thread     = false;
 uint64_t score         = 0;
 uint8_t last_dir       = DIR_RGHT;
@@ -103,6 +106,7 @@ void back_cyan()    { printf("\033[46m");  }
 void back_white()   { printf("\033[47m");  }
 void clear_color()  { printf("\033[0m");   }
 void hide_cursor()  { printf("\033[0;0H"); }
+void cursor_back()  { printf("\033[D");    }
 void blink_text()   { printf("\033[5m");   }
 void clear_screen() { printf("\033[2J");   }
 void flush()        { fflush(stdout);      }
@@ -113,15 +117,21 @@ class Point {
  public:
     uint16_t x;
     uint16_t y;
-    Point() {
+
+    Point()
+    {
         this->x = 0;
         this->y = 0;
     }
-    Point(unsigned short y, unsigned short x) {
+
+    Point(unsigned short y, unsigned short x)
+    {
         this->x = x;
         this->y = y;
     }
-    bool operator==(const Point& other) {
+
+    bool operator==(const Point& other)
+    {
         return this->x == other.x && this->y == other.y;
     }
 };
@@ -131,28 +141,41 @@ Point fruit = NO_FRUIT;
 class Snake {
  public:
     std::deque<Point> segments;  // Head of deque is head of snake
-    Snake(Point term_dim) {
+    uint16_t head_x() { return this->segments.front().x; }
+    uint16_t head_y() { return this->segments.front().y; }
+    Point& head()     { return this->segments.front();   }
+
+    Snake(Point term_dim)
+    {
         Point term_mid (term_dim.y / 2, (term_dim.x / 2) - (INIT_SNAKE_LENGTH / 2));
         for (int i = 0; i < INIT_SNAKE_LENGTH; i++) {
             Point temp_point (term_mid.y, term_mid.x + i);
             this->segments.push_front(temp_point);
         }
     }
-    uint16_t length() {
+
+    uint16_t length()
+    {
         return this->segments.size();
     }
-    bool point_on_snake(Point p) {
+
+    bool point_on_snake(Point p)
+    {
         for (Point& pnt : this->segments)
             if (pnt == p) return true;
         return false;
     }
-    bool snake_head_collides_body() {
+
+    bool snake_head_collides_body()
+    {
         for (uint32_t i = 1; i < this->segments.size(); i++)
             if (this->segments[0] == this->segments[i])
                 return true;
         return false;
     }
-    void move(Point p) {
+
+    void move(Point p)
+    {
         this->segments.push_front(p);
         bool collected_fruit = (p == fruit);
         if (!collected_fruit) {
@@ -168,9 +191,6 @@ class Snake {
             this->segments.pop_back();
         }
     }
-    uint16_t head_x() { return this->segments.front().x; }
-    uint16_t head_y() { return this->segments.front().y; }
-    Point& head()     { return this->segments.front();   }
 };
 Snake snek(Point(term_rows, term_cols));
 
@@ -234,18 +254,7 @@ void write_highscores()
 
 void wait_for_enter()
 {
-    //std::string s;
-    //getline(std::cin, s);
-    //std::cin.ignore();
-    //std::cin.clear();
-    //std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    //fflush(stdin);
-    //getchar();
     std::cin.get();
-    // set_location(10, 10);
-    // printf("cin.get val: %d", val);
-    // set_location(11, 10);
-    // printf("cin.fail ? : %d", std::cin.fail());
 }
 
 void print_fruit()
@@ -299,7 +308,6 @@ void print_field()
     printf("%s", bar_cstr);
 }
 
-
 void update_movement_direction()
 {
     uint8_t num_directions_down = 0;
@@ -308,8 +316,9 @@ void update_movement_direction()
     if (key_s_pressed) ++num_directions_down;
     if (key_d_pressed) ++num_directions_down;
 
-    if (num_directions_down == 0 || num_directions_down == 4)
+    if (num_directions_down == 0 || num_directions_down == 4) {
         return; // No change in movement
+    }
     else if (num_directions_down == 1) {
         if      (key_w_pressed) last_dir = DIR_UP;
         else if (key_a_pressed) last_dir = DIR_LEFT;
@@ -381,29 +390,6 @@ void print_inputs()
     printf((key_a_pressed) ? "A" : "a");
     printf((key_s_pressed) ? "S" : "s");
     printf((key_d_pressed) ? "D" : "d");
-    printf(" ");
-    printf((key_space_pressed) ? "SPACE" : "space");
-}
-
-void game_loop()
-{
-    while (!exit_condition) {
-        move_snake();
-        //print_inputs();
-        print_snake();
-        hide_cursor();
-
-        // Clear keyboard inputs
-        key_w_pressed = KEY_UP;
-        key_a_pressed = KEY_UP;
-        key_s_pressed = KEY_UP;
-        key_d_pressed = KEY_UP;
-        key_space_pressed = KEY_UP;
-
-        flush();
-        // Sleep
-        sleep(game_tick_ms);
-    }
 }
 
 // Credit to sd9: https://www.linuxquestions.org/questions/programming-9/game-programming-non-blocking-key-input-740422/
@@ -430,7 +416,6 @@ void keyboard_thread_loop()
             else if (ch == KEY_A_ASCII || ch ==  KEY_a_ASCII) key_a_pressed = KEY_DOWN;
             else if (ch == KEY_S_ASCII || ch ==  KEY_s_ASCII) key_s_pressed = KEY_DOWN;
             else if (ch == KEY_D_ASCII || ch ==  KEY_d_ASCII) key_d_pressed = KEY_DOWN;
-            else if (ch == KEY_SPACE_ASCII)                   key_space_pressed = KEY_DOWN;
         } while (ch != EOF);
         // Wait a little
         sleep(KB_SLEEP_MS);
@@ -441,6 +426,37 @@ void keyboard_thread_loop()
     fcntl(STDIN_FILENO, F_SETFL, oldf);         // Set flag for STDIN file descriptor
 }
 
+void game_loop()
+{
+    std::thread kb_thread(keyboard_thread_loop);    // Launch keyboard listener thread
+    while (!exit_condition) {
+        move_snake();
+        //print_inputs();
+        print_snake();
+        hide_cursor();
+
+        // Clear keyboard inputs
+        key_w_pressed = KEY_UP;
+        key_a_pressed = KEY_UP;
+        key_s_pressed = KEY_UP;
+        key_d_pressed = KEY_UP;
+
+        flush();
+        // Sleep
+        sleep(game_tick_ms);
+    }
+    // Join with keyboard listener thread when not controlling snake
+    end_kb_thread = true;
+    kb_thread.join();
+}
+
+// Prints the ith highscore at the current location, with the current terminal color
+void print_highscore(int i) {
+    if (i < 0 || i >= MAX_HIGHSCORES) return;
+    if (i == 0) printf("#%d %c%c%c %lu", i+1, highscores[i].name[0], highscores[i].name[1], highscores[i].name[2], highscores[i].score);
+    else        printf("%2d %c%c%c %lu", i+1, highscores[i].name[0], highscores[i].name[1], highscores[i].name[2], highscores[i].score);
+}
+
 void print_highscores(int y, int x)
 {
     set_location(y, x);
@@ -448,8 +464,7 @@ void print_highscores(int y, int x)
     ++y;
     for (int i = 0; i < MAX_HIGHSCORES; i++) {
         set_location(y, x);
-        if (i == 0) printf("#%d %c%c%c %lu", i+1, highscores[i].name[0], highscores[i].name[1], highscores[i].name[2], highscores[i].score);
-        else        printf("%2d %c%c%c %lu", i+1, highscores[i].name[0], highscores[i].name[1], highscores[i].name[2], highscores[i].score);
+        print_highscore(i);
         ++y;
     }
 }
@@ -471,9 +486,7 @@ void welcome_screen()
     printf("WELCOME TO SNAKE!");
     set_location(6,4);
     printf("wasd to move");
-    set_location(7,4);
-    printf("space to pause");
-    print_highscores(9, 4);
+    print_highscores(8, 4);
     set_location(term_rows - 2, 4);
     printf("by Calvin Cramer - calvincramer@gmail.com");
     set_location(term_rows, term_cols / 2 - 8);
@@ -517,19 +530,64 @@ void death_screen()
     sleep(1000);
 }
 
-void insert_highscore(uint64_t s, const char* name)
+int insert_highscore(uint64_t s, const char* name)
 {
     uint8_t i = 0;
     while (i < MAX_HIGHSCORES && highscores[i].score >= s) ++i;
+    uint8_t index_inserted = i;
     HighscoreEntry prev = highscores[i];
-    strcpy(highscores[i].name, name);
+    strcpy(highscores[i].name, name);  // strcpy can cause buffer overflows, use strncpy
     highscores[i].score = s;
     ++i;
-    for (; i < MAX_HIGHSCORES - 1; ++i) {
+    for (; i < MAX_HIGHSCORES; ++i) {
         HighscoreEntry temp = highscores[i];
         highscores[i] = prev;
         prev = temp;
     }
+    return index_inserted;
+}
+
+// For some reason I can get a buffer overflow when compiling with -03 and pressing many keys and
+// hitting delete quickly, but it doesn't do that without optimizations.
+// KNOWN BUG: pressing a key and backspace at the same time can cause buffer overflow on last character
+// This puts a space in name where the null terminator should habe been
+void input_user_name(char* name)
+{
+    // Clear name
+    memset(name, ' ', HIGHSCORE_NAME_LEN);
+
+    // Set up stdin for keyboard input
+    struct termios oldt, newt;
+    tcgetattr(STDIN_FILENO, &oldt);             // Get current terminal parameters
+    newt = oldt;                                // Copy oldt to newt
+    newt.c_lflag &= ~(ICANON | ECHO);           // c_lflag control local modes. Sets the local mode to be noncannoical and to not echo characters
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);    // Set STDIN file descriptor to have new terminal parameters effective immediately
+
+    // Assume name is HIGHSCORE_NAME_LEN characters plus null terminator
+    int i = 0;
+    char c = '\0';
+    while (true) {
+        c = std::cin.get();
+        if (c == ENTER && i > 0){
+            break;
+        }
+        else if ((c == BACKSPACE || c == DELETE) && i > 0) {
+            name[i] = ' ';
+            --i;
+            cursor_back();
+            printf("_");
+            cursor_back();
+        }
+        else if (isalpha(c) && i < HIGHSCORE_NAME_LEN) {
+            c = toupper(c);
+            name[i] = c;   // Place in name array
+            i++;
+            printf("%c", c);  // Echo to stdout
+        }
+    }
+    name[HIGHSCORE_NAME_LEN] = '\0';    // This fixes the bug(?)
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);    // Set the terminal parameters to original (TCSANOW forces change now)
 }
 
 void score_screen()
@@ -552,33 +610,45 @@ void score_screen()
         printf("HIGHSCORE GET, YAY!");
         set_location(9, 2);
         printf("ENTER NAME: ___");
-        hide_cursor();
+        set_location(9, 14);
         flush();
 
-        // TODO - enter 3 character number, make sure all uppercase
-        //std::string name ("ABC");
-        //name.c_str()
-        sleep(1000);
+        // Enter name
+        //const char* name = "ABC";
+        //std::string name;
+        //std::cin >> std::setw(HIGHSCORE_NAME_LEN) >> name;
+        char name [HIGHSCORE_NAME_LEN + 1];
+        input_user_name(name);
+        // Debug print name
+        set_location(24, 1);
+        //for (int i = 0; i < 21; i++)
+        //    printf("%c", name[i]);
 
-        const char* name = "ABC";
-        insert_highscore(score, name);
-        write_highscores();     // Write scores to file right away
-        print_highscores(11, 2);
-        // TODO - print new highscores with thier name, highlight line
+        int hs_index = insert_highscore(score, name);
 
-    } else {
-        print_highscores(9, 2);
+        write_highscores();         // Write scores to file right away
+        print_highscores(11, 2);    // Reprint highscores
+        // Print new highscore with green background
+        back_green();
+        set_location(11 + hs_index + 1, 2);
+        print_highscore(hs_index);
+        clear_color();
+    }
+    else {
+        print_highscores(8, 2);
     }
 
     set_location(term_rows, term_cols / 2 - 7);
     printf("<enter to quit>");
     hide_cursor();
     flush();
+    fflush(stdin);
     wait_for_enter();
 }
 
 int main()
 {
+    srand(time(NULL));  // For the fruit placement
     read_highscores();
 
     // Get and set terminal dimensions
@@ -588,11 +658,6 @@ int main()
     term_cols = size.ws_col;
 
     welcome_screen();
-
-    srand(time(NULL));                              // For the fruit placement
-    std::thread kb_thread(keyboard_thread_loop);    // Launch keyboard listener thread
-
-    // Initialize snake again now that we know terminal dimensions, and fruit
     snek = Snake(Point(term_rows, term_cols));
 
     // Clear screen
@@ -603,19 +668,13 @@ int main()
     print_field();
     print_snake();
     print_score();
+    place_random_fruit();
     hide_cursor();
     flush();
-    sleep(1000);
-
-    place_random_fruit();
 
     game_loop();
 
-    // Join with keyboard listener thread before exiting
-    end_kb_thread = true;
-    kb_thread.join();
-
-    //death_screen();
+    death_screen();
     score_screen();
 
     // End of game clear screen
