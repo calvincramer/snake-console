@@ -20,6 +20,8 @@
 //#include <conio.h> // Windows based console io (for arrow keys)
 
 #define BORDER_CHAR '.'             // Border character
+#define BORDER_SEP_X 8
+#define BORDER_SEP_Y 4
 #define POINTS_FOR_FRUIT 10
 #define GAME_TICK_MS_START 100      // Snake moves 10 tiles per second at start
 #define KB_SLEEP_MS 20              // Keyboard sleep
@@ -140,7 +142,8 @@ Point fruit = NO_FRUIT;
 
 class Snake {
  public:
-    std::deque<Point> segments;  // Head of deque is head of snake
+    std::deque<Point> segments;     // Head of deque is head of snake
+    std::deque<uint8_t> seg_dirs;   // Stores the directions the were taken
     uint16_t head_x() { return this->segments.front().x; }
     uint16_t head_y() { return this->segments.front().y; }
     Point& head()     { return this->segments.front();   }
@@ -151,6 +154,7 @@ class Snake {
         for (int i = 0; i < INIT_SNAKE_LENGTH; i++) {
             Point temp_point (term_mid.y, term_mid.x + i);
             this->segments.push_front(temp_point);
+            this->seg_dirs.push_front(DIR_RGHT);
         }
     }
 
@@ -174,21 +178,27 @@ class Snake {
         return false;
     }
 
+    bool on_board_dot(Point p) {
+        return (p.x - 1) % BORDER_SEP_X == 0 && (p.y - 1) % BORDER_SEP_Y == 0;
+    }
+
     void move(Point p)
     {
         this->segments.push_front(p);
+        this->seg_dirs.push_front(last_dir);
         bool collected_fruit = (p == fruit);
         if (!collected_fruit) {
             // Clear the last section of the snake on the screen (otherwise tail wouldn't stay on screen forever)
             clear_color();  // clear color needed for background color
             set_location(this->segments.back().y, this->segments.back().x);
             // Check if need to reprint border
-            if ( (this->segments.back().y == 1 || this->segments.back().y == term_rows) && this->segments.back().x % 2 == 1) {  // TODO replace with function
+            if (on_board_dot(this->segments.back())) {
                 printf("%c", BORDER_CHAR);
             } else {
                 printf(" ");
             }
             this->segments.pop_back();
+            this->seg_dirs.pop_back();
         }
     }
 };
@@ -197,17 +207,20 @@ Snake snek(Point(term_rows, term_cols));
 void print_snake()
 {
     back_green();
-    int seg_num = -1;
+    int seg_num = 0;
     for (Point& p : snek.segments) {
         set_location(p.y, p.x);
-        if (seg_num == -1) {
-            if (last_dir == DIR_UP || last_dir == DIR_DOWN)
-                printf("|");
-            else
-                printf("-");
-        } else {
-            printf("o");
+        if      (seg_num == 0) { printf( (last_dir == DIR_UP || last_dir == DIR_DOWN) ? "|" : "-"); }
+        else if (seg_num == 1) { printf("O"); }
+        else if (seg_num == snek.length() - 1) { // Point tail towards second to last segment
+            switch (snek.seg_dirs[snek.seg_dirs.size() - 2]) {
+            case DIR_RGHT: printf("<"); break;
+            case DIR_DOWN: printf("^"); break;
+            case DIR_LEFT: printf(">"); break;
+            case DIR_UP:   printf("V"); break;
+            }
         }
+        else { printf("o"); }
         ++seg_num;
     }
 }
@@ -285,27 +298,12 @@ void place_random_fruit()
 
 void print_field()
 {
-    int width = term_cols;
-    int height = term_rows;
-    std::string bar (width, BORDER_CHAR);
-    for (uint16_t i = 1; i < bar.length(); i += 2)
-        bar[i] = ' ';
-    const char* bar_cstr = bar.c_str();
-
-    clear_color();
-    fore_white();
-    set_location(1, 1);
-    printf("%s", bar_cstr);
-
-    for (uint16_t y = 2; y <= height - 1; y++) {
-        set_location(y, 1);
-        printf("%c", BORDER_CHAR);
-        set_location(y, width);
-        printf("%c", BORDER_CHAR);
+    for (int y = 1; y <= term_rows; y += BORDER_SEP_Y) {
+        for (int x = 1; x <= term_cols; x += BORDER_SEP_X) {
+            set_location(y, x);
+            printf("%c", BORDER_CHAR);
+        }
     }
-
-    set_location(height, 1);
-    printf("%s", bar_cstr);
 }
 
 void update_movement_direction()
@@ -353,10 +351,10 @@ void move_snake()
     update_movement_direction();
     // Now move snake in direction of last_dir
     switch (last_dir) {
-        case DIR_UP:   snek.move(Point(snek.head_y() - 1, snek.head_x())); break;
-        case DIR_LEFT: snek.move(Point(snek.head_y(), snek.head_x() - 1)); break;
-        case DIR_DOWN: snek.move(Point(snek.head_y() + 1, snek.head_x())); break;
-        case DIR_RGHT: snek.move(Point(snek.head_y(), snek.head_x() + 1)); break;
+    case DIR_UP:   snek.move(Point(snek.head_y() - 1, snek.head_x())); break;
+    case DIR_LEFT: snek.move(Point(snek.head_y(), snek.head_x() - 1)); break;
+    case DIR_DOWN: snek.move(Point(snek.head_y() + 1, snek.head_x())); break;
+    case DIR_RGHT: snek.move(Point(snek.head_y(), snek.head_x() + 1)); break;
     }
     // Check if hit fruit
     if (snek.head() == fruit) {
@@ -525,9 +523,10 @@ void death_screen()
     back_red();
     for (int i = 1; i <= term_rows + term_cols; i += 2)
         color_diagonal(i);
-    for (int i = term_rows + term_cols - (((term_rows + term_cols) % 2 == 1) ? 1 : 2); i >= 1; i -= 2)
-        color_diagonal(i);
-    sleep(1000);
+    // Color in reverse direction
+    // for (int i = term_rows + term_cols - (((term_rows + term_cols) % 2 == 1) ? 1 : 2); i >= 1; i -= 2)
+    //     color_diagonal(i);
+    // sleep(1000);
 }
 
 int insert_highscore(uint64_t s, const char* name)
@@ -610,22 +609,15 @@ void score_screen()
         printf("HIGHSCORE GET, YAY!");
         set_location(9, 2);
         printf("ENTER NAME: ___");
-        set_location(9, 14);
+        set_location(term_rows, term_cols / 2 - 11);
+        printf("<enter to insert name>");
+        set_location(9, 14);    // Location where name input starts
         flush();
 
         // Enter name
-        //const char* name = "ABC";
-        //std::string name;
-        //std::cin >> std::setw(HIGHSCORE_NAME_LEN) >> name;
         char name [HIGHSCORE_NAME_LEN + 1];
         input_user_name(name);
-        // Debug print name
-        set_location(24, 1);
-        //for (int i = 0; i < 21; i++)
-        //    printf("%c", name[i]);
-
         int hs_index = insert_highscore(score, name);
-
         write_highscores();         // Write scores to file right away
         print_highscores(11, 2);    // Reprint highscores
         // Print new highscore with green background
@@ -633,6 +625,9 @@ void score_screen()
         set_location(11 + hs_index + 1, 2);
         print_highscore(hs_index);
         clear_color();
+        // Clear the <enter to insert name>
+        set_location(term_rows, term_cols / 2 - 11);
+        printf("                      ");
     }
     else {
         print_highscores(8, 2);
@@ -671,6 +666,8 @@ int main()
     place_random_fruit();
     hide_cursor();
     flush();
+
+    sleep(750);
 
     game_loop();
 
