@@ -10,7 +10,7 @@ Note doesn't bind folder
 
 ### Create container with mounted folder
 
-`docker run --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --name=linux -it -v //c/Users/CalvinLaptop/CalvinLaptop_Files/snake:/snake ubuntu:v4 /bin/bash`
+`docker run --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --name=linux -it -v //c/Users/CalvinLaptop/CalvinLaptop_Files/snake:/snake -v //c/Users/CalvinLaptop/CalvinLaptop_Files/Boost-Learning:/boost ubuntu:v6 /bin/bash`
 
 --cap-add and --security-opt to make `gdb` work
 

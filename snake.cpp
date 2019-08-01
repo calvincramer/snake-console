@@ -17,6 +17,10 @@
 #include <cstring>
 #include <iomanip>
 #include <cctype>
+#include "audiere/src/audiere.h"    // For audio playing capabilities
+//#include "audiere/src/device.cpp"
+//#include "audiere/src/device_null.h"
+//#include "audiere/src/input.cpp"
 //#include <conio.h> // Windows based console io (for arrow keys)
 
 #define BORDER_CHAR '.'             // Border character
@@ -639,6 +643,36 @@ void score_screen()
     flush();
     fflush(stdin);
     wait_for_enter();
+}
+
+void start_music()
+{
+    using namespace audiere;
+    AudioDevicePtr device(OpenDevice());
+    if (!device) {
+        // failure
+    }
+    OutputStreamPtr stream(OpenSound(device, "audio/audioclips/Castlevania_Order_of_Ecclesia_Rhapsody_of_The_Forsaken.mp3", true));
+    if (stream) {
+        // Start music
+        stream->setRepeat(true);
+        stream->setVolume(1.0f);
+        stream->play();
+    } else {
+        // Failure
+        clear_color();
+        set_location(term_rows - 2, term_cols - 16);
+        printf("Play music fail");
+    }
+    OutputStreamPtr sound(OpenSound(device, "audio/audioclips/short.mp3", false));
+    if (sound) {
+        sound->play();
+    } else {
+        // Failure
+        clear_color();
+        set_location(term_rows - 1, term_cols - 16);
+        printf("Play sound fail");
+    }
 }
 
 int main()
