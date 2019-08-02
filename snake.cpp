@@ -1,6 +1,6 @@
 #include <stdio.h>      // C version io
-#include <sys/ioctl.h>
-#include <termios.h>
+#include <sys/ioctl.h>  // Only on Linux
+#include <termios.h>    // Only on Linux
 #include <unistd.h>     // STDOUT_FILENO definition, sleeping
 #include <chrono>       // for sleeping
 #include <thread>       // for sleeping
@@ -17,12 +17,6 @@
 #include <cstring>
 #include <iomanip>
 #include <cctype>
-#include "audiere.h"    // For audio playing capabilities
-//#include "device.cpp"
-//#include "audiere/src/device.cpp"
-//#include "audiere/src/device_null.h"
-//#include "audiere/src/input.cpp"
-//#include <conio.h> // Windows based console io (for arrow keys)
 
 #define BORDER_CHAR '.'             // Border character
 #define BORDER_SEP_X 8
@@ -233,7 +227,6 @@ void print_snake()
 void play_sound()
 {
     printf("\a");
-    // TODO: doesn't always work, and might sound like windows annoying sound
 }
 
 void write_default_highscore_file()
@@ -366,8 +359,7 @@ void move_snake()
         score += POINTS_FOR_FRUIT;
         ++fruits_coll;
         ++fruits_total;
-        if (fruits_coll >= FRUITS_PER_SPEEDUP) {
-            // SPEED THE GAME UP!
+        if (fruits_coll >= FRUITS_PER_SPEEDUP) {    // SPEED THE GAME UP!
             fruits_coll = 0;
             game_tick_ms = std::max(game_tick_ms - SPEEDUP_MS, MIN_GAME_TICK);
             ++speed_level;
@@ -472,39 +464,6 @@ void print_highscores(int y, int x)
     }
 }
 
-void start_music()
-{
-    using namespace audiere;
-    AudioDevicePtr device(OpenDevice());
-    if (!device) {
-        // failure
-        clear_color();
-        set_location(term_rows - 3, term_cols - 16);
-        printf("Open device fail");
-    }
-    OutputStreamPtr stream(OpenSound(device, "audio/audioclips/Castlevania_Order_of_Ecclesia_Rhapsody_of_The_Forsaken.mp3", true));
-    if (stream) {
-        // Start music
-        stream->setRepeat(true);
-        stream->setVolume(1.0f);
-        stream->play();
-    } else {
-        // Failure
-        clear_color();
-        set_location(term_rows - 2, term_cols - 16);
-        printf("Play music fail");
-    }
-    OutputStreamPtr sound(OpenSound(device, "audio/audioclips/short.mp3", false));
-    if (sound) {
-        sound->play();
-    } else {
-        // Failure
-        clear_color();
-        set_location(term_rows - 1, term_cols - 16);
-        printf("Play sound fail");
-    }
-}
-
 void welcome_screen()
 {
     clear_color();
@@ -512,11 +471,11 @@ void welcome_screen()
     fore_black();
     clear_screen();
     // Set stdin to not echo any input
-    // struct termios oldt, newt;
-    // tcgetattr(STDIN_FILENO, &oldt);
-    // newt = oldt;
-    // newt.c_lflag &= ~(ECHO);
-    // tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    struct termios oldt, newt;
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
 
     set_location(4,4);
     printf("WELCOME TO SNAKE!");
@@ -528,16 +487,11 @@ void welcome_screen()
     set_location(term_rows, term_cols / 2 - 8);
     printf("<enter to start>");
 
-    // TODO display highscores on the welcome screen
     hide_cursor();
     flush();
-    //sleep(2000);
-
-
-    start_music();
-    flush();
-
     wait_for_enter();
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);    // Set the terminal parameters to original (TCSANOW forces change now)
 }
 
 void death_screen()
