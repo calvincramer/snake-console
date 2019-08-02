@@ -1,62 +1,79 @@
+#include <cstring>      // strcpy(), memset()
+#include <deque>
+#include <fcntl.h>
+#include <fstream>
+#include <iostream>     // std::cin
 #include <stdio.h>      // C version io
+#include <string>       // C++ std::string
 #include <sys/ioctl.h>  // Only on Linux
 #include <termios.h>    // Only on Linux
-#include <unistd.h>     // STDOUT_FILENO definition, sleeping
-#include <chrono>       // for sleeping
 #include <thread>       // for sleeping
-#include <iostream>
-#include <limits>
-#include <ios>
-#include <thread>
-#include <cstdint>      // for integer types
-#include <deque>
-#include <ctime>
-#include <limits>
-#include <fstream>
-#include <fcntl.h>
-#include <cstring>
-#include <iomanip>
-#include <cctype>
+#include <unistd.h>     // STDOUT_FILENO definition, usleep()
 
-#define BORDER_CHAR '.'             // Border character
-#define BORDER_SEP_X 8
-#define BORDER_SEP_Y 4
-#define POINTS_FOR_FRUIT 10
-#define GAME_TICK_MS_START 100      // Snake moves 10 tiles per second at start
-#define KB_SLEEP_MS 20              // Keyboard sleep
-#define DEFAULT_TERMINAL_ROWS 20
-#define DEFAULT_TERMINAL_COLS 20
-#define INIT_SNAKE_LENGTH 7
-#define FRUITS_PER_SPEEDUP 5
-#define SPEEDUP_MS 5                // Amount to speedup game by
-#define DEATH_SCREEN_TICK 50
-#define MIN_GAME_TICK 30
-#define MAX_HIGHSCORES 10
-#define HIGHSCORE_NAME_LEN 3
-#define DIR_RGHT 0
-#define DIR_DOWN 1
-#define DIR_LEFT 2
-#define DIR_UP   3
+#define BORDER_CHAR             '#' // Border character
+#define DOT_CHAR                '.'
+#define DOT_SEP_X               8
+#define DOT_SEP_Y               4
+#define BASE_POINTS_FOR_FRUIT   10
+#define KB_SLEEP_MS             20  // Keyboard sleep
+#define DEFAULT_TERMINAL_ROWS   20
+#define DEFAULT_TERMINAL_COLS   20
+#define INIT_SNAKE_LENGTH       8
+#define GAME_TICK_MS_START      100 // Snake moves 10 tiles per second at start
+#define MIN_GAME_TICK           30
+#define SPEEDUP_MS              5   // Amount to speedup game by
+#define FRUITS_PER_SPEEDUP      5
+#define DEATH_SCREEN_TICK       50
+#define MAX_HIGHSCORES          10
+#define HIGHSCORE_NAME_LEN      3
+#define DIR_RGHT                0
+#define DIR_DOWN                1
+#define DIR_LEFT                2
+#define DIR_UP                  3
+#define NO_FRUIT                Point(65535, 65535)
 const std::string highscore_file = "hs.txt";
 
 // ASCII values for keyboard input
-#define KEY_w_ASCII 119
-#define KEY_a_ASCII 97
-#define KEY_s_ASCII 115
-#define KEY_d_ASCII 100
-#define KEY_W_ASCII 87
-#define KEY_A_ASCII 65
-#define KEY_S_ASCII 83
-#define KEY_D_ASCII 68
-#define KEY_UP false
-#define KEY_DOWN true
-#define BACKSPACE 8
-#define DELETE 127
-#define ENTER 10        // newline
+#define KEY_w_ASCII     119
+#define KEY_a_ASCII     97
+#define KEY_s_ASCII     115
+#define KEY_d_ASCII     100
+#define KEY_W_ASCII     87
+#define KEY_A_ASCII     65
+#define KEY_S_ASCII     83
+#define KEY_D_ASCII     68
+#define KEY_UP          false
+#define KEY_DOWN        true
+#define BACKSPACE       8
+#define DELETE          127
+#define ENTER           10  // Newline
 
 struct HighscoreEntry {
     char name[HIGHSCORE_NAME_LEN + 1];  // Plus one for null terminal
     uint64_t score;
+};
+
+class Point {
+ public:
+    uint16_t x;
+    uint16_t y;
+
+    Point()
+    {
+        this->x = 0;
+        this->y = 0;
+    }
+
+    Point(unsigned short y, unsigned short x)
+    {
+        this->x = x;
+        this->y = y;
+    }
+
+    bool operator==(const Point& other)
+    {
+        return this->x == other.x && this->y == other.y;
+    }
 };
 
 // Global variables
@@ -71,10 +88,19 @@ bool end_kb_thread     = false;
 uint64_t score         = 0;
 uint8_t last_dir       = DIR_RGHT;
 bool exit_condition    = false;
-uint32_t fruits_coll   = 0;       // will get reset to zero when speeding up
+uint32_t fruits_coll   = 0;       // Will get reset to zero when speeding up
 uint32_t fruits_total  = 0;
-uint32_t speed_level   = 0;
+uint32_t speed_level   = 1;
+uint16_t game_field_left   = 2;   // Second column is left-most spot on playing field
+uint16_t game_field_top    = 2;
+uint16_t game_field_right  = term_cols - 1;
+uint16_t game_field_bottom = term_rows - 1;
+uint16_t print_speed_level_x = 9;
+uint16_t print_fruits_collected_x = 20;
+uint16_t print_score_x = 30;
+Point fruit = NO_FRUIT;
 HighscoreEntry highscores[MAX_HIGHSCORES];
+int unused = 0;     // Used to get around -Werror=unused
 
 /*
 ANSI escape codes
@@ -111,33 +137,8 @@ void cursor_back()  { printf("\033[D");    }
 void blink_text()   { printf("\033[5m");   }
 void clear_screen() { printf("\033[2J");   }
 void flush()        { fflush(stdout);      }
+void sleep(int ms)  { usleep(ms * 1000);   }
 void set_location(int y, int x) { printf("\033[%d;%dH", y, x); }
-void sleep(int ms) { usleep(ms * 1000);   }
-
-class Point {
- public:
-    uint16_t x;
-    uint16_t y;
-
-    Point()
-    {
-        this->x = 0;
-        this->y = 0;
-    }
-
-    Point(unsigned short y, unsigned short x)
-    {
-        this->x = x;
-        this->y = y;
-    }
-
-    bool operator==(const Point& other)
-    {
-        return this->x == other.x && this->y == other.y;
-    }
-};
-#define NO_FRUIT Point(65535, 65535)
-Point fruit = NO_FRUIT;
 
 class Snake {
  public:
@@ -178,7 +179,8 @@ class Snake {
     }
 
     bool on_board_dot(Point p) {
-        return (p.x - 1) % BORDER_SEP_X == 0 && (p.y - 1) % BORDER_SEP_Y == 0;
+        return (p.x - game_field_left) % DOT_SEP_X == 0
+            && (p.y - game_field_top) % DOT_SEP_Y == 0;
     }
 
     void move(Point p)
@@ -192,7 +194,7 @@ class Snake {
             set_location(this->segments.back().y, this->segments.back().x);
             // Check if need to reprint border
             if (on_board_dot(this->segments.back())) {
-                printf("%c", BORDER_CHAR);
+                printf("%c", DOT_CHAR);
             } else {
                 printf(" ");
             }
@@ -207,19 +209,38 @@ void print_snake()
 {
     back_green();
     int seg_num = 0;
+    bool alt = true;
     for (Point& p : snek.segments) {
+        if (seg_num % 5 == 0 && seg_num > 0) {
+            if (alt) {
+                fore_green();
+                back_red();
+                alt = false;
+            }
+            else {
+                fore_green();
+                back_yellow();
+                alt = true;
+            }
+        }
         set_location(p.y, p.x);
         if      (seg_num == 0) { printf( (last_dir == DIR_UP || last_dir == DIR_DOWN) ? "|" : "-"); }
         else if (seg_num == 1) { printf("O"); }
         else if (seg_num == snek.length() - 1) { // Point tail towards second to last segment
-            switch (snek.seg_dirs[snek.seg_dirs.size() - 2]) {
+            switch (snek.seg_dirs[seg_num - 1]) {
             case DIR_RGHT: printf("<"); break;
             case DIR_DOWN: printf("^"); break;
             case DIR_LEFT: printf(">"); break;
             case DIR_UP:   printf("V"); break;
             }
         }
-        else { printf("o"); }
+        else printf("o");
+
+        if (seg_num % 5 == 0) {
+            fore_white();
+            back_green();
+        }
+
         ++seg_num;
     }
 }
@@ -271,37 +292,72 @@ void wait_for_enter()
 void print_fruit()
 {
     back_magenta();
-    fore_red();
+    fore_yellow();
     blink_text();
     set_location(fruit.y, fruit.x);
     printf("O");
 }
 
-void print_score()
+uint8_t length_of_num(uint32_t n) {
+    uint8_t digits = 0;
+    do {
+         ++digits;
+         n /= 10;
+    } while (n);
+    return digits;
+}
+
+void print_score_fruit_speed_level()
 {
-    fore_cyan();
-    back_blue();
-    set_location(term_rows, term_cols / 2);
-    printf("Score: %lu", score);
+    fore_blue();
+    back_black();
+    set_location(term_rows, 4);
+    printf(" Speed: %i %c Fruits: %i %c Score %lu ", speed_level, BORDER_CHAR, fruits_total, BORDER_CHAR, score);
 }
 
 void place_random_fruit()
 {
     do {
-        fruit.x = (rand() % term_cols) + 1;
-        fruit.y = (rand() % term_rows) + 1;
+        fruit.x = (rand() % (game_field_right - game_field_left)) + game_field_left;
+        fruit.y = (rand() % (game_field_bottom - game_field_top)) + game_field_top;
     } while (snek.point_on_snake(fruit));
     print_fruit();
 }
 
 void print_field()
 {
-    for (int y = 1; y <= term_rows; y += BORDER_SEP_Y) {
-        for (int x = 1; x <= term_cols; x += BORDER_SEP_X) {
-            set_location(y, x);
-            printf("%c", BORDER_CHAR);
-        }
+    // Border
+    back_black();
+    fore_blue();
+    // Left
+    for (int x = 1; x < game_field_left; ++x) {
+    for (int y = 1; y <= term_rows; ++y) {
+        set_location(y, x);
+        printf("%c", BORDER_CHAR);
+    }}
+    // Right
+    for (int x = game_field_right + 1; x <= term_cols; ++x) {
+    for (int y = 1; y <= term_rows; ++y) {
+        set_location(y, x);
+        printf("%c", BORDER_CHAR);
+    }}
+    // Top
+    for (int y = 1; y < game_field_top; ++y) {
+        set_location(y, 1);
+        printf("%s", std::string(term_cols, BORDER_CHAR).c_str());
     }
+    // Bottom
+    for (int y = game_field_bottom + 1; y <= term_rows; ++y) {
+        set_location(y, 1);
+        printf("%s", std::string(term_cols, BORDER_CHAR).c_str());
+    }
+    // Dots
+    clear_color();
+    for (int y = game_field_top; y <= game_field_bottom; y += DOT_SEP_Y) {
+    for (int x = game_field_left; x <= game_field_right; x += DOT_SEP_X) {
+        set_location(y, x);
+        printf("%c", DOT_CHAR);
+    }}
 }
 
 void update_movement_direction()
@@ -344,6 +400,28 @@ void update_movement_direction()
     }
 }
 
+uint64_t points_for_fruit()
+{
+    switch (speed_level) {
+    case 1:  return 10;
+    case 2:  return 14;
+    case 3:  return 19;
+    case 4:  return 24;
+    case 5:  return 31;
+    case 6:  return 39;
+    case 7:  return 49;
+    case 8:  return 61;
+    case 9:  return 75;
+    case 10: return 92;
+    case 11: return 112;
+    case 12: return 137;
+    case 13: return 166;
+    case 14: return 201;
+    case 15: return 250;
+    default: return BASE_POINTS_FOR_FRUIT;
+    }
+}
+
 void move_snake()
 {
     update_movement_direction();
@@ -356,22 +434,24 @@ void move_snake()
     }
     // Check if hit fruit
     if (snek.head() == fruit) {
-        score += POINTS_FOR_FRUIT;
+        score += points_for_fruit();
         ++fruits_coll;
         ++fruits_total;
         if (fruits_coll >= FRUITS_PER_SPEEDUP) {    // SPEED THE GAME UP!
             fruits_coll = 0;
-            game_tick_ms = std::max(game_tick_ms - SPEEDUP_MS, MIN_GAME_TICK);
-            ++speed_level;
+            if (game_tick_ms > MIN_GAME_TICK) {
+                game_tick_ms = std::max(game_tick_ms - SPEEDUP_MS, MIN_GAME_TICK);
+                ++speed_level;
+            }
         }
         play_sound();
         place_random_fruit();
         // extended snake handled by snek.move()
-        print_score();
+        print_score_fruit_speed_level();
     }
     // Check if hit self or outside edge
-    if (snek.head_x() < 1 || snek.head_x() > term_cols
-     || snek.head_y() < 1 || snek.head_y() > term_rows
+    if (snek.head_x() < game_field_left || snek.head_x() > game_field_right
+     || snek.head_y() < game_field_top  || snek.head_y() > game_field_bottom
      || snek.snake_head_collides_body()) {
         exit_condition = true;
     }
@@ -548,8 +628,8 @@ int insert_highscore(uint64_t s, const char* name)
 // This puts a space in name where the null terminator should habe been
 void input_user_name(char* name)
 {
-    // Clear name
-    memset(name, ' ', HIGHSCORE_NAME_LEN);
+    unused = system("setterm -cursor on");    // Turn cursor on
+    memset(name, ' ', HIGHSCORE_NAME_LEN);  // Clear name
 
     // Set up stdin for keyboard input
     struct termios oldt, newt;
@@ -583,6 +663,7 @@ void input_user_name(char* name)
     name[HIGHSCORE_NAME_LEN] = '\0';    // This fixes the bug(?)
 
     tcsetattr(STDIN_FILENO, TCSANOW, &oldt);    // Set the terminal parameters to original (TCSANOW forces change now)
+    unused = system("setterm -cursor off");
 }
 
 void score_screen()
@@ -633,20 +714,53 @@ void score_screen()
     printf("<enter to quit>");
     hide_cursor();
     flush();
-    fflush(stdin);
+    // Set stdin to not echo any input
+    struct termios oldt, newt;
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
     wait_for_enter();
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);    // Set the terminal parameters to original (TCSANOW forces change now)
+}
+
+void set_field_dimensions(uint16_t rows, uint16_t cols)
+{
+    term_rows = rows;
+    term_cols = cols;
+
+    int num_dots_hor = 1;
+    while (num_dots_hor * DOT_SEP_X <= cols) ++num_dots_hor;
+    while (num_dots_hor * DOT_SEP_X >= cols - 2) --num_dots_hor;
+    int game_field_width = (num_dots_hor * DOT_SEP_X) + 1;
+    int padding_hor      = cols - game_field_width;
+    int padding_left     = padding_hor / 2;
+    int padding_right    = padding_hor / 2 + (padding_hor % 2);
+    game_field_left      = padding_left + 1;
+    game_field_right     = cols - padding_right;
+
+    int num_dots_ver = 1;
+    while (num_dots_ver * DOT_SEP_Y <= rows) ++num_dots_ver;
+    while (num_dots_ver * DOT_SEP_Y >= rows - 2) --num_dots_ver;
+    int game_field_height = (num_dots_ver * DOT_SEP_Y) + 1;
+    int padding_ver       = rows - game_field_height;
+    int padding_top       = padding_ver / 2;
+    int padding_bottom    = padding_ver / 2 + (padding_ver % 2);
+    game_field_top        = padding_top + 1;
+    game_field_bottom     = rows - padding_bottom;
 }
 
 int main()
 {
+    unused = system("setterm -cursor off");
+
     srand(time(NULL));  // For the fruit placement
     read_highscores();
 
     // Get and set terminal dimensions
     struct winsize size;
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &size);
-    term_rows = size.ws_row;
-    term_cols = size.ws_col;
+    set_field_dimensions(size.ws_row, size.ws_col);
 
     welcome_screen();
     snek = Snake(Point(term_rows, term_cols));
@@ -658,17 +772,15 @@ int main()
     // Print field
     print_field();
     print_snake();
-    print_score();
+    print_score_fruit_speed_level();
     place_random_fruit();
     hide_cursor();
     flush();
 
-
-
     sleep(750);
-
     game_loop();
 
+    // Now died
     death_screen();
     score_screen();
 
@@ -676,6 +788,9 @@ int main()
     clear_color();
     clear_screen();
     flush();
+
+    unused = system("setterm -cursor on");
+    if (unused == 134982) unused = 2;
 
 	return 0;
 }
