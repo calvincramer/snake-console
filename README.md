@@ -47,7 +47,7 @@ For example, my `-v <path_to_snake_folder>:/snake` looked like this:
 ### 4. Start container and attach to container
 
 ```
-docker start linux && docker attach linux
+docker start snake && docker attach snake
 ```
 
 ### 5. Navigate into snake folder and compile
