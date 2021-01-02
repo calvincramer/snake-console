@@ -611,7 +611,7 @@ int insert_highscore(uint64_t s, const char* name)
     while (i < MAX_HIGHSCORES && highscores[i].score >= s) ++i;
     uint8_t index_inserted = i;
     HighscoreEntry prev = highscores[i];
-    strcpy(highscores[i].name, name);  // strcpy can cause buffer overflows, use strncpy
+    strncpy(highscores[i].name, name, HIGHSCORE_NAME_LEN);  // strcpy can cause buffer overflows, use strncpy
     highscores[i].score = s;
     ++i;
     for (; i < MAX_HIGHSCORES; ++i) {

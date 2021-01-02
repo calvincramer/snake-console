@@ -20,15 +20,19 @@ git clone https://github.com/calvincramer/snake_console.git snake
 cd snake
 ```
 
-### 1. Get the ubuntu base image: 
+### 1. Have developement environment
+
+If you have linux environment, skip to last step to compile and run. Also easy to do on WSL. The next steps use are for a docker environment.
+
+### 2. Get the ubuntu base image: 
 
 `docker pull ubuntu`
 
-### 2. Create image from Dockerfile
+### 3. Create image from Dockerfile
 
 `docker build -t snake_image .`
 
-### 3. Create container with mounted folder
+### 4. Create container with mounted folder
 
 Without gdb:
 
@@ -44,13 +48,13 @@ For example, my `-v <path_to_snake_folder>:/snake` looked like this:
 
 `-v //c/Users/CalvinLaptop/CalvinLaptop_Files/snake:/snake`
 
-### 4. Start container and attach to container
+### 5. Start container and attach to container
 
 ```
 docker start snake && docker attach snake
 ```
 
-### 5. Navigate into snake folder and compile
+### 6. Compile
 
 ```
 cd /snake
@@ -66,3 +70,5 @@ make D=1
 gdb snake
 use gdb to your heart's content
 ```
+
+* note: compile with debug if you get a out of bounds compilation error.

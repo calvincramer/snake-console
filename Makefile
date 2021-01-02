@@ -1,4 +1,5 @@
 CFLAGS := -Wall -Werror
+CPP_VERSION := -std=c++17
 
 ## Debug flag
 ifneq ($(D),1)
@@ -11,7 +12,7 @@ endif
 default: snake
 
 snake: snake.cpp
-	g++ $(CFLAGS) -pthread $< -o snake
+	g++ $(CPP_VERSION) $(CFLAGS) -pthread $< -o snake
 
 clean:
 	rm -f snake
